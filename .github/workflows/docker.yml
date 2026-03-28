@@ -1,0 +1,127 @@
+name: Docker Build & Compose
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (populate cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: helloworld:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-compose:
+    name: Docker Compose
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image from cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: helloworld:latest
+          cache-from: type=gha
+
+      - name: Generate self-signed TLS certificate
+        run: |
+          mkdir -p cert
+          openssl req -x509 -newkey rsa:2048 \
+            -keyout cert/key.pem -out cert/cert.pem \
+            -days 1 -nodes \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+
+      - name: Start services
+        run: docker compose up -d --wait --wait-timeout 60
+
+      - name: Check running containers
+        run: docker compose ps
+
+      - name: Verify app is responding
+        run: |
+          sleep 3
+          curl -fsk https://localhost/
+
+      - name: Print app logs
+        if: always()
+        run: docker compose logs app
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  push-image:
+    name: Push to GHCR
+    runs-on: ubuntu-latest
+    needs: docker-compose
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+
+  cleanup-cache:
+    name: Cleanup Build Cache
+    runs-on: ubuntu-latest
+    needs: [docker-build, docker-compose, push-image]
+    if: ${{ always() }}
+    permissions:
+      actions: write
+    steps:
+      - name: Delete Buildx GHA cache entries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          echo "Listing buildkit cache entries..."
+          gh actions-cache list -R "$GH_REPO" --key buildkit- --limit 100 | \
+            awk '{print $1}' | \
+            while read -r key; do
+              echo "Deleting cache: $key"
+              gh actions-cache delete "$key" -R "$GH_REPO" --confirm || true
+            done
+          echo "Cache cleanup done."

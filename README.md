@@ -199,6 +199,48 @@ Goroutine B: zerolog event → private buffer → dailyWriter.Write → blocks o
 
 Under extreme throughput the mutex can become a bottleneck because every goroutine serializes on disk I/O. For typical workloads this is a non-issue. If it ever becomes one, a buffered channel writer can be introduced in front of the file without changing any call sites.
 
+## CI / CD (GitHub Actions)
+
+Two workflows run on every push and pull request to `main`:
+
+### Go (`go.yml`)
+
+Builds and tests the Go source directly (no Docker).
+
+| Step | Command |
+|------|---------|
+| Setup | `actions/setup-go` with Go 1.26.1 |
+| Build | `go build -v ./...` |
+| Test | `go test -v ./...` |
+
+### Docker Build & Compose (`docker.yml`)
+
+Builds the Docker image, verifies the full stack with Compose, and (on `main` push only) publishes to GitHub Container Registry.
+
+| Job | Purpose |
+|-----|---------|
+| **Docker Build** | Builds the image with Buildx and writes layers to **GitHub Actions cache** (`type=gha, mode=max`). |
+| **Docker Compose** | Rebuilds from cache (`load: true`), generates a throwaway self-signed cert, starts the app + Postgres with `docker compose up`, and runs `curl -fsk https://localhost/` to verify the app responds. |
+| **Push to GHCR** | Rebuilds from cache and pushes `ghcr.io/<owner>/<repo>:latest`. Only runs on push to `main`, not on PRs. |
+| **Cleanup Build Cache** | Deletes all Buildx `buildkit-*` entries from the Actions cache after the other jobs finish, keeping cache storage clean between runs. |
+
+#### Cache flow
+
+```
+docker-build   ──(writes cache)──►  GHA cache
+docker-compose ──(reads cache)──►   near-instant rebuild → compose test
+push-image     ──(reads cache)──►   near-instant rebuild → push to GHCR
+cleanup-cache  ──(deletes cache)──► cache entries removed
+```
+
+Each run benefits from the cache internally across jobs, then cleans up so it doesn't consume the 10 GB Actions cache quota between runs.
+
+#### Pull the published image
+
+```bash
+docker pull ghcr.io/<owner>/<repo>:latest
+```
+
 ## API Documentation
 
 Add your endpoints and usage examples here.

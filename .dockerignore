@@ -1,0 +1,12 @@
+tmp/
+logs/log-files/
+*.exe
+*.exe~
+*.test
+*.out
+.env
+.git
+.gitignore
+.dockerignore
+README.md
+docker-compose.yml

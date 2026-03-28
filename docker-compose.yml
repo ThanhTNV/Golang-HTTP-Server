@@ -1,8 +1,21 @@
-version: '3.8'
-
 services:
+  app:
+    image: helloworld:latest
+    build: .
+    ports:
+      - "443:443"
+    environment:
+      DATABASE_URL: "host=postgres user=postgres password=postgres dbname=mydb port=5432 sslmode=disable"
+    volumes:
+      - ./cert:/app/cert:ro
+      - app_logs:/app/logs/log-files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
-    image: postgres:latest
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -10,7 +23,14 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  app_logs:
