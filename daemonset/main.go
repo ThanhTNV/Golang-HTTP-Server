@@ -35,13 +35,10 @@ type CPUStatus struct {
 }
 
 type MemoryStatus struct {
-	TotalMB      uint64  `json:"total_mb"`
-	UsedMB       uint64  `json:"used_mb"`
-	FreeMB       uint64  `json:"free_mb"`
-	AvailableMB  uint64  `json:"available_mb"`
-	BuffersMB    uint64  `json:"buffers_mb"`
-	CachedMB     uint64  `json:"cached_mb"`
-	UsagePercent float64 `json:"usage_percent"`
+	MemoryUsage string `json:"memoryUsage"`
+	MemoryTotal string `json:"memoryTotal"`
+	MemoryFree  string `json:"memoryFree"`
+	RSS         string `json:"rss"`
 }
 
 type NetDevStats struct {
@@ -157,31 +154,18 @@ func collectCPU() (*CPUStatus, error) {
 }
 
 func collectMemory() (*MemoryStatus, error) {
-	info, err := readKVFile("/proc/meminfo")
-	if err != nil {
-		return nil, err
-	}
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
 
-	totalKB := parseKVUint(info, "MemTotal")
-	freeKB := parseKVUint(info, "MemFree")
-	availKB := parseKVUint(info, "MemAvailable")
-	buffersKB := parseKVUint(info, "Buffers")
-	cachedKB := parseKVUint(info, "Cached")
-	usedKB := totalKB - freeKB - buffersKB - cachedKB
-
-	usage := 0.0
-	if totalKB > 0 {
-		usage = float64(usedKB) / float64(totalKB) * 100
+	toMB := func(b uint64) string {
+		return fmt.Sprintf("%.2f MB", float64(b)/1024/1024)
 	}
 
 	return &MemoryStatus{
-		TotalMB:      totalKB / 1024,
-		UsedMB:       usedKB / 1024,
-		FreeMB:       freeKB / 1024,
-		AvailableMB:  availKB / 1024,
-		BuffersMB:    buffersKB / 1024,
-		CachedMB:     cachedKB / 1024,
-		UsagePercent: math_round(usage, 2),
+		MemoryUsage: toMB(m.HeapInuse),
+		MemoryTotal: toMB(m.HeapSys),
+		MemoryFree:  toMB(m.HeapIdle),
+		RSS:         toMB(m.Sys),
 	}, nil
 }
 
@@ -255,37 +239,6 @@ func readCPUStat() (idle, total uint64, err error) {
 		return idle, total, nil
 	}
 	return 0, 0, fmt.Errorf("cpu line not found in /proc/stat")
-}
-
-func readKVFile(path string) (map[string]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	result := make(map[string]string)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		parts := strings.SplitN(scanner.Text(), ":", 2)
-		if len(parts) == 2 {
-			result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-		}
-	}
-	return result, scanner.Err()
-}
-
-func parseKVUint(info map[string]string, key string) uint64 {
-	val, ok := info[key]
-	if !ok {
-		return 0
-	}
-	fields := strings.Fields(val)
-	if len(fields) == 0 {
-		return 0
-	}
-	v, _ := strconv.ParseUint(fields[0], 10, 64)
-	return v
 }
 
 func parseUint(s string) uint64 {

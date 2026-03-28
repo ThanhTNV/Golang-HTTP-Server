@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: k8s-pod-replicaset
+  labels:
+    app: k8s-pod-replicaset
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: k8s-pod-replicaset
+  template:
+    metadata:
+      labels:
+        app: k8s-pod-replicaset
+    spec:
+      containers:
+        - name: k8s-pod
+          image: api-go:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

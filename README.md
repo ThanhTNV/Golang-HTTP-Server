@@ -1,299 +1,279 @@
-[![Go](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/go.yml/badge.svg)](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/go.yml)
-[![Docker Build & Compose](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/docker.yml/badge.svg)](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/docker.yml)
-# GoGoGo API Server
+# GoGoGo — Kubernetes Learning Project
 
-A learning project to practice building HTTP API servers in Go.
+A hands-on project for learning Go microservices and Kubernetes. The repository contains three Go applications and a full set of K8s manifests to deploy them on a local Minikube cluster.
 
-## Tech Stack
-
-- **Fiber v3** - HTTP framework (HTTPS with TLS)
-- **Zerolog** - Structured JSON logging
-- **GORM** - Database ORM handling
-- **Air** - Hot reload during development
-
-## Project Structure
+## Repository Structure
 
 ```
 .
-├── app/                  # Application code and features
-├── cert/                 # TLS certificate and key (gitignored)
-├── db/                   # Database functions and models
-├── logs/
-│   ├── logger.go         # Zerolog setup, daily file writer, Fiber middleware
-│   └── log-files/        # Output directory (gitignored)
-│       └── Mar-2026/
-│           └── 28-Mar-2026.txt
-├── static/               # Static resources
-├── generated/            # GORM-generated files
-├── job/                  # Kubernetes Job — node resource logger
-│   ├── main.go
+├── api/                        # Main API server (Deployment)
+│   ├── main.go                 # Fiber v3 HTTP server with GORM + Zerolog
+│   ├── app/                    # Feature handlers (e.g. pets)
+│   ├── db/                     # Database connection and queries
+│   ├── logs/                   # Zerolog daily-rotating file writer + Fiber middleware
+│   ├── generated/              # GORM-generated code
+│   ├── static/                 # Static assets
 │   ├── Dockerfile
-│   ├── go.mod
-│   └── k8s/              # PV, PVC, and Job manifests
-├── daemonset/            # Kubernetes DaemonSet — node status HTTP API
-│   ├── main.go
+│   ├── docker-compose.yml      # Local dev stack (API + Postgres)
+│   └── go.mod
+│
+├── job/                        # Node resource logger (Job)
+│   ├── main.go                 # Reads /proc for CPU + memory, logs to PV
 │   ├── Dockerfile
-│   ├── go.mod
-│   └── k8s/              # DaemonSet manifest
-├── Dockerfile            # Main API server image
-└── docker-compose.yml    # Local dev stack (API + Postgres)
+│   ├── k8s/                    # PV, PVC, and Job manifests
+│   └── go.mod
+│
+├── daemonset/                  # Node status HTTP API (DaemonSet)
+│   ├── main.go                 # Fiber v3 server exposing /status endpoints
+│   ├── Dockerfile
+│   ├── k8s/                    # DaemonSet manifest
+│   └── go.mod
+│
+├── k8s/                        # Kubernetes manifests and deploy scripts
+│   ├── resources/              # ConfigMap, Secret, PV, PVC, Services, Ingress
+│   ├── workloads/              # Deployment, ReplicaSet, DaemonSet, StatefulSet, Job, Pod
+│   ├── helm/                   # NGINX Ingress Controller Helm values
+│   ├── cert/                   # Generated TLS cert/key (gitignored)
+│   ├── Apply-Resource.ps1      # Step 1: apply resources
+│   ├── Appy-Workload.ps1       # Step 2: apply workloads
+│   ├── Apply-ExternalAccess.ps1# Step 3: apply services + ingress
+│   ├── Remove-Exist-Workload.ps1
+│   ├── Create_SelfSigned_Cert.ps1
+│   └── san.cnf
+│
+└── .github/workflows/
+    ├── ci-api.yml              # Go build + test for api/
+    └── docker-api.yml          # Docker build, compose test, push to GHCR
 ```
 
-## Kubernetes Workloads
+## Applications
 
-The repository includes two standalone Go applications designed to run as Kubernetes workloads. Each lives in its own module with a separate `go.mod`, `Dockerfile`, and K8s manifests.
+### `api/` — Main API Server (Deployment)
 
-### Job — Node Resource Logger (`job/`)
+The primary service, deployed as a Kubernetes **Deployment** with 3 replicas. Built with:
 
-A one-shot Kubernetes **Job** that samples the current node's CPU and memory usage and writes structured JSON logs to a PersistentVolume.
+- **Fiber v3** — HTTP framework
+- **GORM** — PostgreSQL ORM
+- **Zerolog** — Structured JSON logging with daily file rotation
 
-- Reads `/proc/stat` (two samples, 1 s apart) to compute CPU usage percentage.
-- Reads `/proc/meminfo` for total, used, free, available, buffers, and cached memory.
-- Falls back to Go `runtime.MemStats` when `/proc` is unavailable (e.g. local testing on macOS/Windows).
-- Logs to both **stdout** (human-readable via `zerolog.ConsoleWriter`) and **`/data/job.log`** (JSON) on the mounted volume.
+The Deployment reads database credentials from a **Secret** and connection config from a **ConfigMap**. Exposed inside the cluster via ClusterIP and externally via NodePort and Ingress.
 
-**K8s resources** (`job/k8s/`):
+| Image | Port | K8s Workload |
+|-------|------|--------------|
+| `api-go:latest` | 3000 | Deployment (3 replicas) |
 
-| File | Kind | Purpose |
-|------|------|---------|
-| `pv.yaml` | PersistentVolume | 2 Gi `hostPath` at `/data/pv-2gb` |
-| `pvc.yaml` | PersistentVolumeClaim | Claims 2 Gi `ReadWriteOnce` |
-| `job.yaml` | Job | Runs `job-go:latest`, mounts PVC at `/data`, `backoffLimit: 2` |
+### `job/` — Node Resource Logger (Job)
 
-```bash
-kubectl apply -f job/k8s/pv.yaml
-kubectl apply -f job/k8s/pvc.yaml
-kubectl apply -f job/k8s/job.yaml
-```
+A one-shot Kubernetes **Job** that samples the node's CPU and memory usage, then exits. Logs are persisted to a PersistentVolume so they survive after the pod terminates.
 
-### DaemonSet — Node Status HTTP API (`daemonset/`)
+- Reads `/proc/stat` (two samples 1 s apart) to compute CPU usage percentage
+- Reads `/proc/meminfo` for total, used, free, available, buffers, and cached memory
+- Falls back to Go `runtime.MemStats` when `/proc` is unavailable (local dev on macOS/Windows)
+- Writes to both **stdout** (human-readable `zerolog.ConsoleWriter`) and **`/data/job.log`** (JSON) on the mounted volume
 
-A long-running Kubernetes **DaemonSet** that exposes an HTTP API (Fiber v3, port 3000) returning real-time node metrics. One pod runs on every node in the cluster.
+| Image | K8s Workload | Storage |
+|-------|--------------|---------|
+| `job-go:latest` | Job (`backoffLimit: 2`) | PVC `pvc-2gb` mounted at `/data` |
+
+### `daemonset/` — Node Status HTTP API (DaemonSet)
+
+A long-running Kubernetes **DaemonSet** that runs one pod on every node and exposes real-time node metrics over HTTP.
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | Health check — returns `OK` |
 | `GET /status` | Full node status (CPU + memory + network) |
 | `GET /status/cpu` | CPU count and usage percentage (sampled over 500 ms) |
-| `GET /status/memory` | Memory total/used/free/available/buffers/cached (MB) and usage % |
+| `GET /status/memory` | Memory breakdown in MB and usage % |
 | `GET /status/network` | Per-interface rx/tx bytes, packets, and errors |
 
 Metrics are read from `/proc/stat`, `/proc/meminfo`, and `/proc/net/dev`.
 
-**K8s resources** (`daemonset/k8s/`):
+| Image | Port | K8s Workload |
+|-------|------|--------------|
+| `api-go:latest` | 3000 | DaemonSet (1 pod per node) |
+
+## `k8s/` — Kubernetes Manifests
+
+All manifests needed to run the system on a Minikube cluster.
+
+### Resources (`k8s/resources/`)
 
 | File | Kind | Purpose |
 |------|------|---------|
-| `daemonset.yaml` | DaemonSet | Runs `api-go:latest`, exposes port 3000, resource limits 200 m CPU / 256 Mi memory |
+| `configmap.yaml` | ConfigMap | `POSTGRES_HOST`, `POSTGRES_PORT` |
+| `secret.yaml` | Secret | DB credentials (`postgres-secret`) + TLS cert/key (`tls-secret`) |
+| `persistent-volume.yaml` | PersistentVolume | `pv-2gb` (Job), `postgres-pv` (StatefulSet) |
+| `persistent-volume-claim.yaml` | PersistentVolumeClaim | `pvc-2gb` (Job) |
+| `service-clusterip.yaml` | Service (ClusterIP) | Internal access to Deployment pods |
+| `service-nodeport.yaml` | Service (NodePort) | External access on port 32080 |
+| `service-loadbalancer.yaml` | Service (LoadBalancer) | External access via cloud/tunnel LB |
+| `ingress.yaml` | Ingress | NGINX Ingress with TLS — `/api` and `/daemonset` routes |
 
-```bash
-kubectl apply -f daemonset/k8s/daemonset.yaml
+### Workloads (`k8s/workloads/`)
+
+| File | Kind | Image | Purpose |
+|------|------|-------|---------|
+| `deployment.yaml` | Deployment | `api-go:latest` | Main API, 3 replicas, env from Secret + ConfigMap |
+| `replicaset.yaml` | ReplicaSet | `api-go:latest` | Standalone ReplicaSet (for learning) |
+| `daemonset.yaml` | DaemonSet | `daemonset-go:latest` | Node status API, 1 pod per node + ClusterIP Service |
+| `statefulset.yaml` | StatefulSet | `postgres:17-alpine` | PostgreSQL with stable identity + headless Service |
+| `job.yaml` | Job | `job-go:latest` | Node resource logger with PVC |
+| `pod.yaml` | Pod | — | Standalone pod (for learning) |
+
+### Architecture
+
+```
+                    https://localhost
+                         │
+                         ▼
+              ┌─────────────────────┐
+              │  NGINX Ingress      │  TLS terminated with tls-secret
+              │  Controller (Helm)  │
+              ├─────────────────────┤
+              │  /api(/|$)(.*)      │──► k8s-pod-clusterip-svc:3000 ──► Deployment (api-go)
+              │  /daemonset(/|$)(.*) │──► k8s-pod-daemonset-svc:3000 ──► DaemonSet (daemonset-go)
+              └─────────────────────┘
+
+Also available via NodePort:
+  :32080 → k8s-pod-nodeport-svc → Deployment (api-go)
+
+Internal (cluster only):
+  postgres-svc:5432              → StatefulSet (postgres)
+  k8s-pod-clusterip-svc:3000    → Deployment (api-go)
+  k8s-pod-daemonset-svc:3000    → DaemonSet (daemonset-go)
+
+Standalone:
+  Job (job-go)                   → runs once, logs to PVC (pvc-2gb)
 ```
 
 ## Building Docker Images
 
-All three applications use multi-stage Alpine builds. Run these from the repository root:
+All three applications use multi-stage Alpine builds. Run from the repository root:
 
 ```bash
-# 1. Main API server (used by docker-compose.yml)
-docker build -t helloworld:latest .
+# 1. API server — main service (Deployment)
+docker build -t api-go:latest ./api
 
 # 2. Job — node resource logger
 docker build -t job-go:latest ./job
 
 # 3. DaemonSet — node status API
-docker build -t api-go:latest ./daemonset
+docker build -t daemonset-go:latest ./daemonset
 ```
 
-> **Tip:** If you are using Minikube, point your shell at Minikube's Docker daemon first so the images are available to the cluster without a registry:
-> ```bash
-> eval $(minikube docker-env)      # Linux / macOS
-> minikube docker-env | Invoke-Expression   # PowerShell
-> ```
-
-## Prerequisites
-
-- Go 1.19 or higher
-- Air (for hot reload)
-- Docker (for building images)
-- kubectl (for deploying K8s workloads)
-
-## Installation
+To make images available inside Minikube without a registry:
 
 ```bash
+# Linux / macOS
+eval $(minikube docker-env)
+
+# PowerShell
+minikube docker-env | Invoke-Expression
+```
+
+Then re-run the `docker build` commands above, or load pre-built images:
+
+```bash
+minikube image load api-go:latest
+minikube image load job-go:latest
+minikube image load daemonset-go:latest
+```
+
+## Deploying to Minikube
+
+### Prerequisites
+
+- [Minikube](https://minikube.sigs.k8s.io/) running (`minikube start`)
+- `kubectl` configured
+- [Helm](https://helm.sh/) (for NGINX Ingress Controller)
+- All three Docker images built and loaded (see above)
+
+### Step-by-step
+
+```powershell
+cd k8s
+
+# 1. Generate TLS cert and store in K8s Secret
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\Create_SelfSigned_Cert.ps1
+
+# 2. Apply resources (ConfigMap, Secret, PV, PVC)
+.\Apply-Resource.ps1
+
+# 3. Apply workloads (StatefulSet, Deployment, DaemonSet, ReplicaSet, Job)
+.\Appy-Workload.ps1
+
+# 4. Install NGINX Ingress Controller
+helm install nginx-ingress oci://registry-1.docker.io/bitnamicharts/nginx-ingress-controller `
+  -f helm/nginx-ingress-controller/nginx-ingress-controller.yaml
+
+# 5. Apply Services + Ingress
+.\Apply-ExternalAccess.ps1
+kubectl apply -f resources/ingress.yaml
+```
+
+### Accessing Services
+
+On Windows with Docker driver, `minikube ip` is not directly reachable. Use one of:
+
+**Via Ingress** (recommended):
+
+```powershell
+# Start tunnel in a separate terminal
+minikube tunnel
+
+# Then access:
+# https://localhost/api/         → Deployment (api-go)
+# https://localhost/daemonset/   → DaemonSet (daemonset-go)
+```
+
+**Via NodePort:**
+
+```powershell
+minikube service k8s-pod-nodeport-svc
+```
+
+**Via port-forward** (debugging):
+
+```powershell
+kubectl port-forward svc/k8s-pod-clusterip-svc 3000:3000    # api-go
+kubectl port-forward svc/k8s-pod-daemonset-svc 3001:3000    # daemonset-go
+```
+
+## Local Development (API only)
+
+```bash
+cd api
+
 # Install dependencies
 go mod download
 
 # Install Air for hot reload
 go install github.com/cosmtrek/air@latest
-```
 
-## Running Locally
-
-The app serves **HTTPS** only (see `main.go` for the listen address, default `:8443`). Generate or copy a key and certificate into `cert/` as described in [Local HTTPS (self-signed certificate)](#local-https-self-signed-certificate).
-
-### Development (with hot reload)
-```bash
+# Run with hot reload
 air
-```
 
-### Production Build
-```bash
+# Or build and run directly
 go build -o server
 ./server
 ```
 
-## Local HTTPS (self-signed certificate)
-
-Place PEM files where the server expects them:
-
-| File | Purpose |
-|------|---------|
-| `cert/cert.pem` | Certificate (chain) |
-| `cert/key.pem` | Private key (must be **unencrypted** PEM; password-protected keys will not load) |
-
-Browsers expect **Subject Alternative Name (SAN)** entries for TLS to `localhost` and `127.0.0.1`. Run the commands below from the **repository root** so output paths match the app.
-
-### Option A — OpenSSL config file (`san.cnf`)
-
-Create `san.cnf` (project root is fine, or use it only for one-off generation):
-
-```ini
-[req]
-default_bits       = 4096
-prompt             = no
-default_md         = sha256
-distinguished_name = dn
-req_extensions     = req_ext
-
-[dn]
-C  = VN
-ST = HoChiMinh
-L  = HoChiMinh
-O  = Dev
-OU = Local
-CN = localhost
-
-[req_ext]
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = localhost
-IP.1  = 127.0.0.1
-```
-
-Generate the key and certificate:
+The API server also runs locally with Docker Compose (API + Postgres):
 
 ```bash
-openssl req -x509 -newkey rsa:4096 \
-  -keyout cert/key.pem -out cert/cert.pem \
-  -days 2650 -nodes \
-  -config san.cnf
+cd api
+docker compose up
 ```
-
-- `-config san.cnf` applies SAN and `default_md = sha256` (equivalent to passing `-sha256` on the command line).
-- `subjectAltName` must be wired through `[req_ext]`; on older OpenSSL you cannot rely on `-addext` alone.
-
-### Option B — One command with `-addext` (OpenSSL ≥ 1.1.1)
-
-No config file:
-
-```bash
-openssl req -x509 -newkey rsa:4096 \
-  -keyout cert/key.pem -out cert/cert.pem \
-  -days 2650 -nodes \
-  -subj "/C=VN/ST=HoChiMinh/L=HoChiMinh/O=Dev/OU=Local/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-```
-
-Then start the app and open `https://localhost:<port>` (you will need to trust or bypass the browser warning for a self-signed cert).
-
-### OpenSSL on Windows
-
-Install with [winget](https://learn.microsoft.com/windows/package-manager/winget/), for example:
-
-```powershell
-winget install --id=FireDaemon.OpenSSL -e
-```
-
-If `openssl` is not on your `PATH`, extend it (adjust the install path if needed):
-
-```powershell
-$Env:PATH += ";C:\Program Files\FireDaemon OpenSSL 3\bin"
-```
-
-If your OpenSSL is too old for `-addext`, use **Option A** with `san.cnf`.
-
-## Logging
-
-The project uses [zerolog](https://github.com/rs/zerolog) for structured JSON logging, writing to daily rotating `.txt` files on disk.
-
-### How it works
-
-1. **`logs.Init()`** (called in `main.go`) configures the global zerolog logger with a custom `dailyWriter` that:
-   - Creates a **folder per month** under `logs/log-files/` (e.g. `Mar-2026/`)
-   - Creates a **file per day** inside that folder (e.g. `28-Mar-2026.txt`)
-   - Rotates automatically at midnight — no external tool needed
-2. **`logs.FiberMiddleware()`** returns a Fiber logger middleware config with a custom `LoggerFunc` that writes every HTTP request through zerolog with structured fields.
-3. **Application code** (e.g. `db/connection.go`) uses `github.com/rs/zerolog/log` directly — all output goes through the same daily writer.
-
-### Log format
-
-Every line is a single JSON object:
-
-```json
-{"level":"info","time":"2026-03-28T10:30:56+07:00","message":"server starting"}
-{"level":"error","error":"dial tcp [::1]:5432: connectex: ...","time":"2026-03-28T10:30:56+07:00","message":"database: connection failed; continuing without DB"}
-{"level":"info","ip":"127.0.0.1","method":"GET","path":"/","status":200,"latency":0.123,"time":"2026-03-28T10:30:58+07:00","message":"request"}
-```
-
-Request log level is determined by HTTP status: **info** for 1xx–3xx, **warn** for 4xx, **error** for 5xx.
-
-### File layout example
-
-```
-logs/log-files/
-├── Mar-2026/
-│   ├── 27-Mar-2026.txt
-│   └── 28-Mar-2026.txt
-└── Apr-2026/
-    └── 01-Apr-2026.txt
-```
-
-### Usage in code
-
-```go
-import "github.com/rs/zerolog/log"
-
-log.Info().Str("key", "value").Msg("something happened")
-log.Error().Err(err).Msg("operation failed")
-```
-
-No extra setup is needed beyond calling `logs.Init()` once at startup and `defer logs.Close()` for cleanup.
-
-### Concurrency safety
-
-Fiber handles each HTTP request in its own goroutine, so multiple requests may log at the same time. This is safe because of two layers:
-
-1. **Zerolog** builds each log event in a **private buffer** (allocated per call) and delivers the complete JSON line to the underlying `io.Writer` in a **single `Write` call**. There is no risk of interleaved partial lines from different goroutines.
-2. **`dailyWriter`** guards every `Write` (and the day-rotation check inside it) with a `sync.Mutex`. Only one goroutine writes to the file at a time.
-
-The flow for concurrent requests looks like this:
-
-```
-Goroutine A: zerolog event → private buffer → dailyWriter.Write → acquires mutex → file.Write → releases mutex
-Goroutine B: zerolog event → private buffer → dailyWriter.Write → blocks on mutex → file.Write → releases mutex
-```
-
-Under extreme throughput the mutex can become a bottleneck because every goroutine serializes on disk I/O. For typical workloads this is a non-issue. If it ever becomes one, a buffered channel writer can be introduced in front of the file without changing any call sites.
 
 ## CI / CD (GitHub Actions)
 
-Two workflows run on every push and pull request to `main`:
+Two workflows trigger on changes to `api/**`:
 
-### Go (`go.yml`)
+### Go API (`ci-api.yml`)
 
-Builds and tests the Go source directly (no Docker).
+Builds and tests the Go source.
 
 | Step | Command |
 |------|---------|
@@ -301,38 +281,17 @@ Builds and tests the Go source directly (no Docker).
 | Build | `go build -v ./...` |
 | Test | `go test -v ./...` |
 
-### Docker Build & Compose (`docker.yml`)
+### Docker Build & Compose (`docker-api.yml`)
 
-Builds the Docker image, verifies the full stack with Compose, and (on `main` push only) publishes to GitHub Container Registry.
+Builds the Docker image, verifies the stack with Compose, and publishes to GHCR.
 
 | Job | Purpose |
 |-----|---------|
-| **Docker Build** | Builds the image with Buildx and writes layers to **GitHub Actions cache** (`type=gha, mode=max`). |
-| **Docker Compose** | Rebuilds from cache (`load: true`), generates a throwaway self-signed cert, starts the app + Postgres with `docker compose up`, and runs `curl -fsk https://localhost/` to verify the app responds. |
-| **Push to GHCR** | Rebuilds from cache and pushes `ghcr.io/<owner>/<repo>:latest`. Only runs on push to `main`, not on PRs. |
-| **Cleanup Build Cache** | Deletes all Buildx `buildkit-*` entries from the Actions cache after the other jobs finish, keeping cache storage clean between runs. |
-
-#### Cache flow
-
-```
-docker-build   ──(writes cache)──►  GHA cache
-docker-compose ──(reads cache)──►   near-instant rebuild → compose test
-push-image     ──(reads cache)──►   near-instant rebuild → push to GHCR
-cleanup-cache  ──(deletes cache)──► cache entries removed
-```
-
-Each run benefits from the cache internally across jobs, then cleans up so it doesn't consume the 10 GB Actions cache quota between runs.
-
-#### Pull the published image
-
-```bash
-docker pull ghcr.io/<owner>/<repo>:latest
-```
-
-## API Documentation
-
-Add your endpoints and usage examples here.
+| **Docker Build** | Builds `api/` with Buildx, writes layers to GHA cache |
+| **Docker Compose** | Rebuilds from cache, starts API + Postgres, runs `curl http://localhost:3000/` |
+| **Push to GHCR** | Pushes `ghcr.io/<owner>/<repo>:latest` (main branch only) |
+| **Cleanup Build Cache** | Deletes Buildx cache entries to stay within GHA quota |
 
 ---
 
-**Note:** This is a learning project for practicing Go development patterns.
+**Note:** This is a learning project for practicing Go and Kubernetes patterns.

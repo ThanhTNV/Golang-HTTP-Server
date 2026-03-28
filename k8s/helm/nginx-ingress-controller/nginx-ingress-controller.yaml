@@ -1,0 +1,5 @@
+image:
+  repository: bitnamilegacy/nginx-ingress-controller
+
+extraArgs:
+  default-ssl-certificate: default/tls-secret

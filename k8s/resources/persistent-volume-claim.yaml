@@ -5,6 +5,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: job-storage
   resources:
     requests:
       storage: 2Gi

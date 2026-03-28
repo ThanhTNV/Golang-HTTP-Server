@@ -19,6 +19,7 @@ spec:
       containers:
         - name: k8s-pod
           image: job-go:latest
+          imagePullPolicy: Never
           volumeMounts:
             - name: job-storage
               mountPath: /data

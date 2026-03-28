@@ -3,11 +3,10 @@ services:
     image: helloworld:latest
     build: .
     ports:
-      - "443:443"
+      - "3000:3000"
     environment:
       DATABASE_URL: "host=postgres user=postgres password=postgres dbname=mydb port=5432 sslmode=disable"
     volumes:
-      - ./cert:/app/cert:ro
       - app_logs:/app/logs/log-files
     depends_on:
       postgres:

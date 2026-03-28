@@ -5,19 +5,13 @@ import (
 	"helloworld/logs"
 	"log"
 
+	loghandler "helloworld/app/logs"
+
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	zlog "github.com/rs/zerolog/log"
 )
 
-const (
-	certDir = "cert"
-	// Standard PEM filenames; place your certificate chain and private key here.
-	certFile = "cert.pem"
-	keyFile  = "key.pem"
-)
-
-// HTTPS default; use 443 in production if you have permission to bind a privileged port.
 var listenAddr = ":3000"
 
 func main() {
@@ -43,15 +37,7 @@ func main() {
 		return c.SendString("OK")
 	})
 
-	// certPath := filepath.Join(certDir, certFile)
-	// keyPath := filepath.Join(certDir, keyFile)
-
-	// if err := app.Listen(listenAddr, fiber.ListenConfig{
-	// 	CertFile:    certPath,
-	// 	CertKeyFile: keyPath,
-	// }); err != nil {
-	// 	log.Fatal(err)
-	// }
+	loghandler.RegisterRoutes(app)
 
 	app.Listen(listenAddr)
 }

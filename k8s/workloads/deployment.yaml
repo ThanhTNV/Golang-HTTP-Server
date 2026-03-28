@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-pod-deployment
+  labels:
+    app: k8s-pod-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: k8s-pod-deployment
+  template:
+    metadata:
+      labels:
+        app: k8s-pod-deployment
+    spec:
+      volumes:
+        - name: cronjob-logs
+          persistentVolumeClaim:
+            claimName: pvc-2gb
+      containers:
+        - name: k8s-pod
+          image: api-go:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: cronjob-logs
+              mountPath: /data
+              readOnly: true
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: k8s-pod-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: k8s-pod-config
+                  key: POSTGRES_PORT
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

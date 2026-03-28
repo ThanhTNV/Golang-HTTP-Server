@@ -33,9 +33,9 @@ go.work.sum
 # .vscode/
 
 # cert
-/cert
+**/cert
 *.crt
 *.key
 
 # logs
-/logs/log-files
+**/logs/log-files

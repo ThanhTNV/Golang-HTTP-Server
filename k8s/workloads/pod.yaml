@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: k8s-pod
+  labels:
+    app: k8s-pod
+spec:
+  containers:
+    - name: k8s-pod
+      image: api-go:latest
+      ports:
+        - containerPort: 3000
+      resources:
+        requests:
+          # CPU tối thiểu: 0.1 CPU (100m) và RAM tối thiểu: 128Mi
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          # CPU tối đa: 0.2 CPU (200m) và RAM tối đa: 256Mi
+          cpu: "200m"
+          memory: "256Mi"

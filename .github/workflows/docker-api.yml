@@ -1,10 +1,12 @@
-name: Docker Build & Compose
+name: Docker Build & Compose (API)
 
 on:
   push:
     branches: [main]
+    paths: [api/**]
   pull_request:
     branches: [main]
+    paths: [api/**]
 
 env:
   REGISTRY: ghcr.io
@@ -22,7 +24,7 @@ jobs:
       - name: Build image (populate cache)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./api
           load: true
           tags: helloworld:ci
           cache-from: type=gha
@@ -41,37 +43,32 @@ jobs:
       - name: Build image from cache
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./api
           load: true
           tags: helloworld:latest
           cache-from: type=gha
 
-      - name: Generate self-signed TLS certificate
-        run: |
-          mkdir -p cert
-          openssl req -x509 -newkey rsa:2048 \
-            -keyout cert/key.pem -out cert/cert.pem \
-            -days 1 -nodes \
-            -subj "/CN=localhost" \
-            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-
       - name: Start services
+        working-directory: api
         run: docker compose up -d --wait --wait-timeout 60
 
       - name: Check running containers
+        working-directory: api
         run: docker compose ps
 
       - name: Verify app is responding
         run: |
           sleep 3
-          curl -fsk https://localhost/
+          curl -fs http://localhost:3000/
 
       - name: Print app logs
         if: always()
+        working-directory: api
         run: docker compose logs app
 
       - name: Tear down
         if: always()
+        working-directory: api
         run: docker compose down -v
 
   push-image:
@@ -101,7 +98,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./api
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
