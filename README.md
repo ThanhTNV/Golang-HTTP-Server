@@ -4,16 +4,23 @@ A learning project to practice building HTTP API servers in Go.
 
 ## Tech Stack
 
-- **Air** - Hot reload during development
-- **Mux Router** - HTTP request routing
+- **Fiber v3** - HTTP framework (HTTPS with TLS)
+- **Zerolog** - Structured JSON logging
 - **GORM** - Database ORM handling
+- **Air** - Hot reload during development
 
 ## Project Structure
 
 ```
 .
 ├── app/              # Application code and features
+├── cert/             # TLS certificate and key (gitignored)
 ├── db/               # Database functions and models
+├── logs/
+│   ├── logger.go     # Zerolog setup, daily file writer, Fiber middleware
+│   └── log-files/    # Output directory (gitignored)
+│       └── Mar-2026/
+│           └── 28-Mar-2026.txt
 ├── static/           # Static resources
 └── generated/        # GORM-generated files
 ```
@@ -128,6 +135,69 @@ $Env:PATH += ";C:\Program Files\FireDaemon OpenSSL 3\bin"
 ```
 
 If your OpenSSL is too old for `-addext`, use **Option A** with `san.cnf`.
+
+## Logging
+
+The project uses [zerolog](https://github.com/rs/zerolog) for structured JSON logging, writing to daily rotating `.txt` files on disk.
+
+### How it works
+
+1. **`logs.Init()`** (called in `main.go`) configures the global zerolog logger with a custom `dailyWriter` that:
+   - Creates a **folder per month** under `logs/log-files/` (e.g. `Mar-2026/`)
+   - Creates a **file per day** inside that folder (e.g. `28-Mar-2026.txt`)
+   - Rotates automatically at midnight — no external tool needed
+2. **`logs.FiberMiddleware()`** returns a Fiber logger middleware config with a custom `LoggerFunc` that writes every HTTP request through zerolog with structured fields.
+3. **Application code** (e.g. `db/connection.go`) uses `github.com/rs/zerolog/log` directly — all output goes through the same daily writer.
+
+### Log format
+
+Every line is a single JSON object:
+
+```json
+{"level":"info","time":"2026-03-28T10:30:56+07:00","message":"server starting"}
+{"level":"error","error":"dial tcp [::1]:5432: connectex: ...","time":"2026-03-28T10:30:56+07:00","message":"database: connection failed; continuing without DB"}
+{"level":"info","ip":"127.0.0.1","method":"GET","path":"/","status":200,"latency":0.123,"time":"2026-03-28T10:30:58+07:00","message":"request"}
+```
+
+Request log level is determined by HTTP status: **info** for 1xx–3xx, **warn** for 4xx, **error** for 5xx.
+
+### File layout example
+
+```
+logs/log-files/
+├── Mar-2026/
+│   ├── 27-Mar-2026.txt
+│   └── 28-Mar-2026.txt
+└── Apr-2026/
+    └── 01-Apr-2026.txt
+```
+
+### Usage in code
+
+```go
+import "github.com/rs/zerolog/log"
+
+log.Info().Str("key", "value").Msg("something happened")
+log.Error().Err(err).Msg("operation failed")
+```
+
+No extra setup is needed beyond calling `logs.Init()` once at startup and `defer logs.Close()` for cleanup.
+
+### Concurrency safety
+
+Fiber handles each HTTP request in its own goroutine, so multiple requests may log at the same time. This is safe because of two layers:
+
+1. **Zerolog** builds each log event in a **private buffer** (allocated per call) and delivers the complete JSON line to the underlying `io.Writer` in a **single `Write` call**. There is no risk of interleaved partial lines from different goroutines.
+2. **`dailyWriter`** guards every `Write` (and the day-rotation check inside it) with a `sync.Mutex`. Only one goroutine writes to the file at a time.
+
+The flow for concurrent requests looks like this:
+
+```
+Goroutine A: zerolog event → private buffer → dailyWriter.Write → acquires mutex → file.Write → releases mutex
+Goroutine B: zerolog event → private buffer → dailyWriter.Write → blocks on mutex → file.Write → releases mutex
+```
+
+Under extreme throughput the mutex can become a bottleneck because every goroutine serializes on disk I/O. For typical workloads this is a non-issue. If it ever becomes one, a buffered channel writer can be introduced in front of the file without changing any call sites.
 
 ## API Documentation
 
