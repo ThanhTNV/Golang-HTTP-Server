@@ -31,3 +31,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# cert
+/cert
+*.crt
+*.key
+
+# logs
+/logs/log-files

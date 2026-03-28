@@ -1,30 +1,56 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-
-	"helloworld/app/books"
-	"helloworld/app/pets"
 	"helloworld/db"
+	"helloworld/logs"
+	"log"
+	"path/filepath"
 
-	"github.com/gorilla/mux"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/logger"
+	zlog "github.com/rs/zerolog/log"
 )
 
-var port string = ":80"
+const (
+	certDir = "cert"
+	// Standard PEM filenames; place your certificate chain and private key here.
+	certFile = "cert.pem"
+	keyFile  = "key.pem"
+)
+
+// HTTPS default; use 443 in production if you have permission to bind a privileged port.
+var listenAddr = ":443"
 
 func main() {
-	// Initialize database connection
+	if err := logs.Init(); err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = logs.Close() }()
+
 	db.InitDB()
 
-	r := mux.NewRouter()
-	fs := http.FileServer(http.Dir("static/"))
+	zlog.Info().Msg("server starting")
 
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", fs))
+	app := fiber.New(fiber.Config{
+		CaseSensitive: true,
+		StrictRouting: true,
+		ServerHeader:  "Fiber",
+		AppName:       "Test App v1.0.1",
+	})
 
-	books.BookRouter(r)
-	pets.SetupRoutes(r, db.DB)
+	app.Use(logger.New(logs.FiberMiddleware()))
 
-	fmt.Printf("Server is running at: http://localhost%s\n", port)
-	http.ListenAndServe(port, r)
+	app.Get("/", func(c fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
+	certPath := filepath.Join(certDir, certFile)
+	keyPath := filepath.Join(certDir, keyFile)
+
+	if err := app.Listen(listenAddr, fiber.ListenConfig{
+		CertFile:    certPath,
+		CertKeyFile: keyPath,
+	}); err != nil {
+		log.Fatal(err)
+	}
 }
