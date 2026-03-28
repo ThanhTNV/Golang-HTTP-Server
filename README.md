@@ -1,4 +1,5 @@
 [![Go](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/go.yml/badge.svg)](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/go.yml)
+[![Docker Build & Compose](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/docker.yml/badge.svg)](https://github.com/ThanhTNV/Golang-HTTP-Server/actions/workflows/docker.yml)
 # GoGoGo API Server
 
 A learning project to practice building HTTP API servers in Go.
