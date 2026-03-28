@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8s-pod-job
+  labels:
+    app: k8s-pod-job
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: k8s-pod-job
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: job-storage
+          persistentVolumeClaim:
+            claimName: pvc-2gb
+      containers:
+        - name: k8s-pod
+          image: job-go:latest
+          volumeMounts:
+            - name: job-storage
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

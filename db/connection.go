@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/rs/zerolog/log"
@@ -12,18 +13,20 @@ import (
 var DB *gorm.DB
 
 func InitDB() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "host=localhost user=postgres password=postgres dbname=mydb port=5432 sslmode=disable"
+	db_host := os.Getenv("POSTGRES_HOST")
+	db_port := os.Getenv("POSTGRES_PORT")
+	db_user := os.Getenv("POSTGRES_USER")
+	db_password := os.Getenv("POSTGRES_PASSWORD")
+	db_name := os.Getenv("POSTGRES_DB")
+	if db_host == "" || db_port == "" || db_user == "" || db_password == "" || db_name == "" {
+		log.Error().Msg("database: environment variables are not set")
+		return
 	}
+
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable", db_host, db_user, db_password, db_name, db_port)
 
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Error().Err(err).Msg("database: connection failed; continuing without DB")
-		DB = nil
-		return
-	}
 
 	err = DB.AutoMigrate(&User{}, &Pet{})
 	if err != nil {

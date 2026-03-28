@@ -18,6 +18,6 @@ WORKDIR /app
 
 COPY --from=builder /app /app/server
 
-EXPOSE 443
+EXPOSE 3000
 
 ENTRYPOINT ["/app/server"]

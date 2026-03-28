@@ -4,7 +4,6 @@ import (
 	"helloworld/db"
 	"helloworld/logs"
 	"log"
-	"path/filepath"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/logger"
@@ -19,7 +18,7 @@ const (
 )
 
 // HTTPS default; use 443 in production if you have permission to bind a privileged port.
-var listenAddr = ":443"
+var listenAddr = ":3000"
 
 func main() {
 	if err := logs.Init(); err != nil {
@@ -44,13 +43,15 @@ func main() {
 		return c.SendString("OK")
 	})
 
-	certPath := filepath.Join(certDir, certFile)
-	keyPath := filepath.Join(certDir, keyFile)
+	// certPath := filepath.Join(certDir, certFile)
+	// keyPath := filepath.Join(certDir, keyFile)
 
-	if err := app.Listen(listenAddr, fiber.ListenConfig{
-		CertFile:    certPath,
-		CertKeyFile: keyPath,
-	}); err != nil {
-		log.Fatal(err)
-	}
+	// if err := app.Listen(listenAddr, fiber.ListenConfig{
+	// 	CertFile:    certPath,
+	// 	CertKeyFile: keyPath,
+	// }); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	app.Listen(listenAddr)
 }

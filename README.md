@@ -15,22 +15,108 @@ A learning project to practice building HTTP API servers in Go.
 
 ```
 .
-├── app/              # Application code and features
-├── cert/             # TLS certificate and key (gitignored)
-├── db/               # Database functions and models
+├── app/                  # Application code and features
+├── cert/                 # TLS certificate and key (gitignored)
+├── db/                   # Database functions and models
 ├── logs/
-│   ├── logger.go     # Zerolog setup, daily file writer, Fiber middleware
-│   └── log-files/    # Output directory (gitignored)
+│   ├── logger.go         # Zerolog setup, daily file writer, Fiber middleware
+│   └── log-files/        # Output directory (gitignored)
 │       └── Mar-2026/
 │           └── 28-Mar-2026.txt
-├── static/           # Static resources
-└── generated/        # GORM-generated files
+├── static/               # Static resources
+├── generated/            # GORM-generated files
+├── job/                  # Kubernetes Job — node resource logger
+│   ├── main.go
+│   ├── Dockerfile
+│   ├── go.mod
+│   └── k8s/              # PV, PVC, and Job manifests
+├── daemonset/            # Kubernetes DaemonSet — node status HTTP API
+│   ├── main.go
+│   ├── Dockerfile
+│   ├── go.mod
+│   └── k8s/              # DaemonSet manifest
+├── Dockerfile            # Main API server image
+└── docker-compose.yml    # Local dev stack (API + Postgres)
 ```
+
+## Kubernetes Workloads
+
+The repository includes two standalone Go applications designed to run as Kubernetes workloads. Each lives in its own module with a separate `go.mod`, `Dockerfile`, and K8s manifests.
+
+### Job — Node Resource Logger (`job/`)
+
+A one-shot Kubernetes **Job** that samples the current node's CPU and memory usage and writes structured JSON logs to a PersistentVolume.
+
+- Reads `/proc/stat` (two samples, 1 s apart) to compute CPU usage percentage.
+- Reads `/proc/meminfo` for total, used, free, available, buffers, and cached memory.
+- Falls back to Go `runtime.MemStats` when `/proc` is unavailable (e.g. local testing on macOS/Windows).
+- Logs to both **stdout** (human-readable via `zerolog.ConsoleWriter`) and **`/data/job.log`** (JSON) on the mounted volume.
+
+**K8s resources** (`job/k8s/`):
+
+| File | Kind | Purpose |
+|------|------|---------|
+| `pv.yaml` | PersistentVolume | 2 Gi `hostPath` at `/data/pv-2gb` |
+| `pvc.yaml` | PersistentVolumeClaim | Claims 2 Gi `ReadWriteOnce` |
+| `job.yaml` | Job | Runs `job-go:latest`, mounts PVC at `/data`, `backoffLimit: 2` |
+
+```bash
+kubectl apply -f job/k8s/pv.yaml
+kubectl apply -f job/k8s/pvc.yaml
+kubectl apply -f job/k8s/job.yaml
+```
+
+### DaemonSet — Node Status HTTP API (`daemonset/`)
+
+A long-running Kubernetes **DaemonSet** that exposes an HTTP API (Fiber v3, port 3000) returning real-time node metrics. One pod runs on every node in the cluster.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check — returns `OK` |
+| `GET /status` | Full node status (CPU + memory + network) |
+| `GET /status/cpu` | CPU count and usage percentage (sampled over 500 ms) |
+| `GET /status/memory` | Memory total/used/free/available/buffers/cached (MB) and usage % |
+| `GET /status/network` | Per-interface rx/tx bytes, packets, and errors |
+
+Metrics are read from `/proc/stat`, `/proc/meminfo`, and `/proc/net/dev`.
+
+**K8s resources** (`daemonset/k8s/`):
+
+| File | Kind | Purpose |
+|------|------|---------|
+| `daemonset.yaml` | DaemonSet | Runs `api-go:latest`, exposes port 3000, resource limits 200 m CPU / 256 Mi memory |
+
+```bash
+kubectl apply -f daemonset/k8s/daemonset.yaml
+```
+
+## Building Docker Images
+
+All three applications use multi-stage Alpine builds. Run these from the repository root:
+
+```bash
+# 1. Main API server (used by docker-compose.yml)
+docker build -t helloworld:latest .
+
+# 2. Job — node resource logger
+docker build -t job-go:latest ./job
+
+# 3. DaemonSet — node status API
+docker build -t api-go:latest ./daemonset
+```
+
+> **Tip:** If you are using Minikube, point your shell at Minikube's Docker daemon first so the images are available to the cluster without a registry:
+> ```bash
+> eval $(minikube docker-env)      # Linux / macOS
+> minikube docker-env | Invoke-Expression   # PowerShell
+> ```
 
 ## Prerequisites
 
 - Go 1.19 or higher
 - Air (for hot reload)
+- Docker (for building images)
+- kubectl (for deploying K8s workloads)
 
 ## Installation
 

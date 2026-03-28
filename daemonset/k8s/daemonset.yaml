@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k8s-pod-daemonset
+  labels:
+    app: k8s-pod-daemonset
+spec:
+  selector:
+    matchLabels:
+      app: k8s-pod-daemonset
+  template:
+    metadata:
+      labels:
+        app: k8s-pod-daemonset
+    spec:
+      containers:
+        - name: k8s-pod
+          image: api-go:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
